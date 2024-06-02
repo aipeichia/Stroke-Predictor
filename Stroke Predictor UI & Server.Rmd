@@ -1,0 +1,334 @@
+---
+title: "UI and Server of Stroke Predictor"
+author: "Chia Ai Pei"
+date: "2024-06-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Wizard Group
+### Universiti Malaya
+
+This is an R Markdown document of UI and server script for Stroke Predictor apps deployment. 
+
+```{r }
+
+## File Name: app.R
+## This is an R script containing UI and server
+
+# Install necessary packages if not already installed
+if (!require(shiny)) install.packages("shiny")
+if (!require(bslib)) install.packages("bslib")
+if (!require(shinyWidgets)) install.packages("shinyWidgets")
+if (!require(dplyr)) install.packages("dplyr")
+if (!require(randomForest)) install.packages("randomForest")
+if (!require(xgboost)) install.packages("xgboost")
+if (!require(caret)) install.packages("caret")
+if (!require(ranger)) install.packages("ranger")
+if (!require(png)) install.packages("png")
+
+# Load necessary libraries
+library(shiny)
+library(bslib)
+library(shinyWidgets)
+library(dplyr)
+library(randomForest)
+library(xgboost)
+library(caret)
+library(ranger)
+library(png)
+
+# Load the pre-trained model and weights
+load("voting_classifier_model.RData")
+
+# Define the UI for the application
+ui <- fluidPage(
+  
+  # Add CSS to set the background color to light blue
+  tags$style(HTML("
+    body {
+      background-color: lightblue;
+    }
+  ")),
+  
+  titlePanel("Stroke Predictor"),
+  uiOutput("page_ui"),
+  tags$script("
+    Shiny.addCustomMessageHandler('jsCode', function(message) {
+      eval(message.code);
+    });
+  ")
+)
+
+# Define the server logic required to determine the stroke prediction
+server <- function(input, output, session) {
+  
+  # Serve the image file
+  addResourcePath("images", "./")
+  
+  # Reactive values to store page number and user inputs
+  values <- reactiveValues(page = 1, gender = NULL, age = 0, avg_glucose_level = 0,
+                           bmi = 0, hypertension = NULL, heart_disease = NULL, ever_married = NULL,
+                           work_type = NULL, residence_type = NULL, smoking_status = NULL)
+  
+  # Function to create progress bar
+  createProgressBar <- function(page) {
+    fluidRow(
+      column(6, align = "left", h5("Questions Completed:")),
+      column(12,progressBar(
+        id = "progress",
+        value = (page - 1) * 10,  # Adjust this based on the number of pages
+        total = 100,
+        display_pct = TRUE
+      ))
+    )
+  }
+  
+  
+  # Define UI for each page
+  output$page_ui <- renderUI({
+    switch(values$page,
+           `1` = fluidPage(
+             createProgressBar(1),
+             h3("1. What is your gender? "),
+             img(src = "gender.png", width = 240, alt = "Gender Image"),
+             radioButtons("gender", "Gender", choices = c("Male", "Female"), selected = values$gender),
+             actionButton("next1", "Next")
+           ),
+           `2` = fluidPage(
+             createProgressBar(2),
+             h3("2. What is your age?"),
+             img(src = "age3.png", width = 350, alt = "Age Image"),
+             sliderInput("age", "Age", min = 0, max = 120, value = values$age),
+             actionButton("prev2", "Back"),
+             actionButton("next2", "Next")
+           ),
+           `3` = fluidPage(
+             createProgressBar(3),
+             h3("3. What is your average glucose level?"),
+             img(src = "glucose_level2.png", width = 320, alt = "Glucose Image"),
+             sliderInput("avg_glucose_level", "Average Glucose Level", min = 0, max = 300, value = values$avg_glucose_level),
+             actionButton("prev3", "Back"),
+             actionButton("next3", "Next")
+           ),
+           `4` = fluidPage(
+             createProgressBar(4),
+             h3("4. What is your BMI?"),
+             img(src = "BMI8.png", width = 350, alt = "BMI Image"),
+             sliderInput("bmi", "BMI", min = 0, max = 40, value = values$bmi),
+             actionButton("prev4", "Back"),
+             actionButton("next4", "Next")
+           ),
+           `5` = fluidPage(
+             createProgressBar(5),
+             h3("5. Do you have hypertension?"),
+             img(src = "hypertension3.png", width = 320, alt = "Hypertension Image"),
+             radioButtons("hypertension", "Hypertension", choices = c("Yes" = "1", "No" = "0"), selected = values$hypertension),
+             actionButton("prev5", "Back"),
+             actionButton("next5", "Next")
+           ),
+           `6` = fluidPage(
+             createProgressBar(6),
+             h3("6. Do you have heart disease?"),
+             img(src = "Heart6.png", width = 350, alt = "Heart Disease Image"),
+             radioButtons("heart_disease", "Heart Disease", choices = c("Yes" = "1", "No" = "0"), selected = values$heart_disease),
+             actionButton("prev6", "Back"),
+             actionButton("next6", "Next")
+           ),
+           `7` = fluidPage(
+             createProgressBar(7),
+             h3("7. Are you married or have ever married before?"),
+             img(src = "marry2.png", width = 350, alt = "Marry Image"),
+             radioButtons("ever_married", "Ever Married", choices = c("Yes", "No"), selected = values$ever_married),
+             actionButton("prev7", "Back"),
+             actionButton("next7", "Next")
+           ),
+           `8` = fluidPage(
+             createProgressBar(8),
+             h3("8. What is your work type?"),
+             img(src = "Work5.png", width = 290, alt = "Work Image"),
+             radioButtons("work_type", "Work Type", choices = c("I am a dependant and have never worked before" = "Dependant_Never_Worked", "Government job" = "Government_Job", "Private job" = "Private_Job", "Self-employed" = "Self_Employed"), selected = values$work_type),
+             actionButton("prev8", "Back"),
+             actionButton("next8", "Next")
+           ),
+           `9` = fluidPage(
+             createProgressBar(9),
+             h3("9. Where do you live?"),
+             img(src = "rural3.png", width = 350, alt = "Rural Image"),
+             radioButtons("residence_type", "Residence Type", choices = c("Urban", "Rural"), selected = values$residence_type),
+             actionButton("prev9", "Back"),
+             actionButton("next9", "Next")
+           ),
+           `10` = fluidPage(
+             createProgressBar(10),
+             h3("10. Are you smoking?"),
+             img(src = "smoking6.png", width = 270, alt = "Smoke Image"),
+             radioButtons("smoking_status", "Smoking Status", choices = c("Never smoked" = "Never_Smoked", "Unlikely smoked" = "Unlikely_Smoked", "Formerly smoked" = "Formerly_Smoked", "Smokes" = "Smokes"), selected = values$smoking_status),
+             actionButton("prev10", "Back"),
+             actionButton("next10", "See Result")
+           ),
+           `11` = fluidPage(
+             createProgressBar(11),
+             h4("Result:"),
+             uiOutput("prediction_result"),
+             actionButton("restart", "Start Over"),
+             h4(HTML("Thanks for using <strong> Stroke Predictor</strong> Apps")),  # Bold "Stroke Predictor"
+             br(),  # This will create a line break
+             h5(HTML("<u>Developed by:</b></u>")),  # Apply underline using HTML tags
+             h6(HTML("<strong>Data Wizard</strong> Group")),
+             h6(HTML("From <strong> Universiti Malaya</strong>"))
+           )
+    )
+  })
+  
+  
+  # Observe next button clicks and update page number and inputs
+  observeEvent(input$next1, {
+    values$gender <- input$gender
+    values$page <- 2
+  })
+  
+  observeEvent(input$prev2, {
+    values$page <- 1
+  })
+  observeEvent(input$next2, {
+    values$age <- input$age
+    values$page <- 3
+  })
+  
+  observeEvent(input$prev3, {
+    values$page <- 2
+  })
+  observeEvent(input$next3, {
+    values$avg_glucose_level <- input$avg_glucose_level
+    values$page <- 4
+  })
+  
+  observeEvent(input$prev4, {
+    values$page <- 3
+  })
+  observeEvent(input$next4, {
+    values$bmi <- input$bmi
+    values$page <- 5
+  })
+  
+  observeEvent(input$prev5, {
+    values$page <- 4
+  })
+  observeEvent(input$next5, {
+    values$hypertension <- input$hypertension
+    values$page <- 6
+  })
+  
+  observeEvent(input$prev6, {
+    values$page <- 5
+  })
+  observeEvent(input$next6, {
+    values$heart_disease <- input$heart_disease
+    values$page <- 7
+  })
+  
+  observeEvent(input$prev7, {
+    values$page <- 6
+  })
+  observeEvent(input$next7, {
+    values$ever_married <- input$ever_married
+    values$page <- 8
+    
+  })
+  
+  
+  observeEvent(input$prev8, {
+    values$page <- 7
+  })
+  
+  observeEvent(input$next8, {
+    values$work_type <- input$work_type
+    values$page <- 9
+  })
+  
+  observeEvent(input$prev9, {
+    values$page <- 8
+  })
+  observeEvent(input$next9, {
+    values$residence_type <- input$residence_type
+    values$page <- 10
+  })
+  
+  observeEvent(input$prev10, {
+    values$page <- 9
+  })
+  observeEvent(input$next10, {
+    values$smoking_status <- input$smoking_status
+    values$page <- 11
+    
+    # Create new_data dataframe with the input values
+    new_data <- data.frame(
+      Gender = ifelse(values$gender == "Male", 0, 1),
+      Age = values$age,
+      Hypertension = as.numeric(values$hypertension),
+      Heart_Disease = as.numeric(values$heart_disease),
+      Work_Type = recode(values$work_type, 'Private_Job' = 0, 'Self_Employed' = 1, 'Government_Job' = 2, 'Dependant_Never_Worked' = -1),
+      Avg_Glucose_Level = values$avg_glucose_level,
+      BMI = values$bmi,
+      Age_BMI = values$age * values$bmi,
+      Hypertension_Age = as.numeric(values$hypertension) * values$age,
+      Heart_Disease_Age = as.numeric(values$heart_disease) * values$age,
+      Age_Avg_Glucose_Level = values$age * values$avg_glucose_level
+    )
+    
+    # Predict using the Voting Classifier
+    rf_pred_prob <- predict(rf_model, new_data, type = "prob")[, "Stroke"]
+    xgb_pred_prob <- predict(xgb_model, new_data, type = "prob")[, "Stroke"]
+    
+    # Combine predictions using weighted average
+    combined_pred_prob <- (rf_weight * rf_pred_prob) + (xgb_weight * xgb_pred_prob)
+    final_pred <- ifelse(combined_pred_prob >= 0.5, "Stroke", "NoStroke")
+    
+    # Ensure that the levels of the factors are consistent
+    final_pred <- factor(final_pred, levels = c("NoStroke", "Stroke"))
+    
+    # Output the prediction result
+    output$prediction_result <- renderUI({
+      if (final_pred == "Stroke") {
+        list(
+          h4("Oh no! You are at a high risk of stroke."),
+          img(src = "SeeDr.png", width = 230, alt = "SeeDoctor Image")
+        )
+      } else {
+        list(
+          h3("Congratulations! You are at a low risk of stroke."),
+          img(src = "Good6.png", width = 350, alt = "Smile Image")
+        )
+      }
+    })
+  })
+  
+  # Restart the questionnaire
+  observeEvent(input$restart, {
+    values$page <- 1
+    values$gender <- NULL
+    values$age <- 0
+    values$avg_glucose_level <- 0
+    values$bmi <- 0
+    values$hypertension <- NULL
+    values$heart_disease <- NULL
+    values$ever_married <- NULL
+    values$work_type <- NULL
+    values$residence_type <- NULL
+    values$smoking_status <- NULL
+  })
+}
+
+# Run the application 
+shinyApp(ui = ui, server = server)
+
+
+
+```
+
+
+*--The End--*
