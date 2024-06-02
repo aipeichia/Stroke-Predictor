@@ -1,0 +1,325 @@
+---
+title: "Stroke Predictor Data Modelling"
+author: "Choon Yue Hua"
+date: "2024-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Data Wizard Group
+### Universiti Malaya
+
+This is an R Markdown document of machine learning and data modelling script for Stroke Predictor.
+
+```{r }
+## File name: stroke_prediction_v3[1].R
+## This is an R script to create data model from machine learning
+
+# Load necessary libraries
+library(readxl)
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(DMwR2)
+library(randomForest)
+library(ranger)
+library(pROC)
+library(PRROC)
+library(ranger)
+library(smotefamily)
+
+# Load the dataset
+file_path <- 'stroke prediction_cleaned data.xlsx'
+df <- read_excel(file_path)
+
+# Display the first few rows of the dataset
+head(df)
+
+# Encode categorical values
+df <- df %>%
+  mutate(Gender = recode(Gender, 'Male' = 0, 'Female' = 1, 'Other' = -1),
+         Residence_Type = recode(Residence_Type, 'Rural' = 0, 'Urban' = 1),
+         Work_Type = recode(Work_Type, 'Private_Job' = 0, 'Self_Employed' = 1, 'Government_Job' = 2, 'Dependant_Never_Worked' = -1),
+         Ever_Married = recode(Ever_Married, 'No' = 0, 'Yes' = 1),
+         Smoking_Status = recode(Smoking_Status, 'Never_Smoked' = 0, 'Formerly_Smoked' = 1, 'Smokes' = 2, 'Unknown' = -1, 'Unlikely_Smoked' = -2))
+
+# Define features and target variable
+X <- df %>%
+  select(Gender, Age, Hypertension, Heart_Disease, Work_Type, Avg_Glucose_Level, BMI)
+y <- df$Stroke
+
+# Convert target variable to factor with appropriate levels
+y <- factor(y, levels = c(0, 1), labels = c("NoStroke", "Stroke"))
+
+# Feature engineering: Create interaction terms or new features
+df <- df %>%
+  mutate(Age_BMI = Age * BMI,
+         Hypertension_Age = Hypertension * Age,
+         Heart_Disease_Age = Heart_Disease * Age,
+         Age_Avg_Glucose_Level = Age * Avg_Glucose_Level)
+
+# Define features and target variable again to include new features
+X <- df %>%
+  select(Gender, Age, Hypertension, Heart_Disease, Work_Type, Avg_Glucose_Level, BMI, Age_BMI, Hypertension_Age, Heart_Disease_Age, Age_Avg_Glucose_Level)
+y <- df$Stroke
+
+# Plot class distribution before resampling
+ggplot(data = df, aes(x = Stroke)) + 
+  geom_bar() +
+  ggtitle("Class Distribution Before Resampling") +
+  xlab("Stroke") +
+  ylab("Count")
+
+# Print the number of instances in each class before resampling
+#cat('Stroke (train before resampling):', sum(y_train == 1), '\n')
+#cat('No stroke (train before resampling):', sum(y_train == 0), '\n')
+
+# Verify the dimensions before resampling
+#cat("X_train shape:", dim(X_train), "\n")
+#cat("y_train shape:", length(y_train), "\n")
+
+# Assuming X is your feature matrix and y is your target variable
+# Convert the data to a data frame
+data <- data.frame(X, y)
+
+# Applying SMOTE
+set.seed(3)
+smote_data <- SMOTE(X = data[, -ncol(data)], target = data$y, K = 5, dup_size = 0)
+
+# Extracting the resampled data
+X_smote <- smote_data$data[, -ncol(smote_data$data)]
+y_smote <- smote_data$data$class
+
+# Convert y_smote to factor with appropriate levels
+y_smote <- factor(y_smote, levels = c(0, 1), labels = c("NoStroke", "Stroke"))
+
+# Plotting the class distribution after SMOTE
+y_smote <- as.factor(y_smote)
+ggplot(data.frame(y_smote), aes(x = y_smote)) + 
+  geom_bar() +
+  ggtitle("Class Distribution After SMOTE")
+
+# Print the number of instances in each class
+cat('Stroke:', sum(y_smote == 1), '\n')
+cat('No stroke:', sum(y_smote == 0), '\n')
+
+# Assuming X_smote and y_smote are your resampled data
+# Combine the features and target variable into one data frame
+data_smote <- data.frame(X_smote, y_smote)
+
+# Splitting the dataset into training and testing sets
+set.seed(42)
+trainIndex <- createDataPartition(data_smote$y_smote, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+dataTrain <- data_smote[ trainIndex,]
+dataTest  <- data_smote[-trainIndex,]
+
+X_train <- dataTrain[, -ncol(dataTrain)]
+X_test <- dataTest[, -ncol(dataTest)]
+y_train <- dataTrain$y_smote
+y_test <- dataTest$y_smote
+
+# Print the dimensions of the split data
+cat("Training Set Dimensions: ", dim(X_train), "\n")
+cat("Testing Set Dimensions: ", dim(X_test), "\n")
+cat("Training Labels Dimensions: ", length(y_train), "\n")
+cat("Testing Labels Dimensions: ", length(y_test), "\n")
+
+# Plotting the class distribution in the training set
+ggplot(data.frame(y_train), aes(x = y_train)) + 
+  geom_bar() +
+  ggtitle("Class Distribution in Training Set")
+
+# Print the number of instances in each class in the training set
+cat('Stroke (train):', sum(y_train == 1), '\n')
+cat('No stroke (train):', sum(y_train == 0), '\n')
+
+# Plotting the class distribution in the testing set
+ggplot(data.frame(y_test), aes(x = y_test)) + 
+  geom_bar() +
+  ggtitle("Class Distribution in Test Set")
+
+# Print the number of instances in each class in the testing set
+cat('Stroke (test):', sum(y_test == 1), '\n')
+cat('No stroke (test):', sum(y_test == 0), '\n')
+
+# Print column names of X_train and X_test
+cat("Column names in X_train:", colnames(X_train), "\n")
+cat("Column names in X_test:", colnames(X_test), "\n")
+
+
+# RANDOM FOREST
+
+# Define the grid of hyperparameters for Random Forest
+rf_tuning_grid <- expand.grid(
+  mtry = c(2, 3, 5, 6),
+  splitrule = "gini",
+  min.node.size = 5
+)
+
+# Cross-validation setup
+rf_cv_control <- trainControl(
+  method = "cv",
+  number = 5,
+  verboseIter = TRUE,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+
+# Train Random Forest model
+rf_model <- train(
+  y_smote ~ .,
+  data = dataTrain,
+  method = "ranger",
+  tuneGrid = rf_tuning_grid,
+  trControl = rf_cv_control,
+  metric = "ROC"
+)
+
+# Display the model
+rf_model
+
+# Predict probabilities on the test set
+rf_pred_prob <- predict(rf_model, newdata = X_test, type = "prob")[, "Stroke"]
+# Predict classes on the test set
+rf_pred <- predict(rf_model, newdata = X_test)
+
+# Ensure the predicted values are factors with correct levels
+rf_pred <- factor(rf_pred, levels = c("NoStroke", "Stroke"))
+
+# Evaluate the Random Forest model using confusion matrix
+cat("Confusion Matrix for Random Forest:\n")
+rf_conf_matrix <- confusionMatrix(rf_pred, y_test, positive = "Stroke")
+print(rf_conf_matrix)
+
+# Calculate precision, recall, and F1-score for Random Forest
+rf_precision <- rf_conf_matrix$byClass["Pos Pred Value"]
+rf_recall <- rf_conf_matrix$byClass["Sensitivity"]
+rf_f1 <- (2 * rf_precision * rf_recall) / (rf_precision + rf_recall)
+
+cat("Random Forest Precision: ", rf_precision, "\n")
+cat("Random Forest Recall: ", rf_recall, "\n")
+cat("Random Forest F1-score: ", rf_f1, "\n")
+
+# XGBOOST
+
+# Define the grid of hyperparameters for XGBoost
+xgb_tuning_grid <- expand.grid(
+  nrounds = 3500,
+  max_depth = 7,
+  eta = 0.01,
+  gamma = 0.01,
+  colsample_bytree = 0.75,
+  min_child_weight = 0,
+  subsample = 0.5
+)
+
+# Cross-validation setup
+xgb_cv_control <- trainControl(
+  method = "cv",
+  number = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary
+)
+
+# Train XGBoost model
+xgb_model <- train(
+  y_smote ~ .,
+  data = dataTrain,
+  method = "xgbTree",
+  tuneGrid = xgb_tuning_grid,
+  trControl = xgb_cv_control,
+  metric = "ROC"
+)
+
+
+# Display the model
+xgb_model
+
+# Predict probabilities on the test set
+xgb_pred_prob <- predict(xgb_model, newdata = X_test, type = "prob")[, "Stroke"]
+# Predict classes on the test set
+xgb_pred <- predict(xgb_model, newdata = X_test)
+
+# Ensure the predicted values are factors with correct levels
+xgb_pred <- factor(xgb_pred, levels = c("NoStroke", "Stroke"))
+
+# Evaluate the XGBoost model using confusion matrix
+cat("Confusion Matrix for XGBoost:\n")
+xgb_conf_matrix <- confusionMatrix(xgb_pred, y_test, positive = "Stroke")
+print(xgb_conf_matrix)
+
+# Calculate precision, recall, and F1-score for XGBoost
+xgb_precision <- xgb_conf_matrix$byClass["Pos Pred Value"]
+xgb_recall <- xgb_conf_matrix$byClass["Sensitivity"]
+xgb_f1 <- (2 * xgb_precision * xgb_recall) / (xgb_precision + xgb_recall)
+
+cat("XGBoost Precision: ", xgb_precision, "\n")
+cat("XGBoost Recall: ", xgb_recall, "\n")
+cat("XGBoost F1-score: ", xgb_f1, "\n")
+
+
+# Calculate weights based on AUC for each model
+rf_auc <- roc(response = y_test, predictor = rf_pred_prob)$auc
+xgb_auc <- roc(response = y_test, predictor = xgb_pred_prob)$auc
+
+# Normalize the AUC scores to sum to 1 (for weights)
+total_auc <- rf_auc + xgb_auc
+rf_weight <- rf_auc / total_auc
+xgb_weight <- xgb_auc / total_auc
+
+cat("Random Forest Weight: ", rf_weight, "\n")
+cat("XGBoost Weight: ", xgb_weight, "\n")
+
+# Voting Classifier
+
+# Combine predictions using weighted average
+combined_pred_prob <- (rf_weight * rf_pred_prob) + (xgb_weight * xgb_pred_prob)
+final_pred <- ifelse(combined_pred_prob >= 0.5, "Stroke", "NoStroke")
+
+# Ensure that the levels of the factors are consistent
+final_pred <- factor(final_pred, levels = c("NoStroke", "Stroke"))
+
+# Evaluate the voting classifier using confusion matrix on the resampled test set
+cat("Confusion Matrix for Weighted Voting Classifier:\n")
+print(confusionMatrix(final_pred, y_test, positive = "Stroke"))
+
+# Calculate Precision, Recall, and F1-score
+voting_precision <- posPredValue(final_pred, y_test, positive = "Stroke")
+voting_recall <- sensitivity(final_pred, y_test, positive = "Stroke")
+voting_f1 <- (2 * voting_precision * voting_recall) / (voting_precision + voting_recall)
+
+cat("Precision: ", voting_precision, "\n")
+cat("Recall: ", voting_recall, "\n")
+cat("F1-score: ", voting_f1, "\n")
+
+# Plot Precision-Recall Curve
+pr <- pr.curve(scores.class0 = combined_pred_prob, weights.class0 = as.numeric(y_test == "Stroke"), curve = TRUE)
+plot(pr)
+
+# Plot ROC Curve
+roc <- roc(as.numeric(y_test == "Stroke"), combined_pred_prob)
+plot(roc, print.auc = TRUE, col = "blue", main = "ROC Curve for Weighted Voting Classifier")
+
+# Create a summary table with 2 decimal places
+results <- data.frame(
+  Model = c("Random Forest", "XGBoost", "Weighted Voting"),
+  Precision = round(c(rf_precision, xgb_precision, voting_precision), 2),
+  Recall = round(c(rf_recall, xgb_recall, voting_recall), 2),
+  F1_Score = round(c(rf_f1, xgb_f1, voting_f1), 2)
+)
+
+print(results)
+
+# Save the models and combined predictions
+save(rf_model, xgb_model, rf_weight, xgb_weight, file = "voting_classifier_model.RData")
+
+
+
+```
+*--The End--*
